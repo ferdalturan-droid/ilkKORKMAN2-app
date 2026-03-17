@@ -1647,7 +1647,7 @@ function App() {
   const seedData = useCallback(async () => {
     try {
       await axios.post(`${API}/seed`);
-      fetchDrivers();
+      await fetchDrivers();
       // Fetch plads list
       const pladsRes = await axios.get(`${API}/plads`);
       setPladsList(pladsRes.data);
@@ -2188,7 +2188,9 @@ function App() {
                 <div>
                   <label className="block text-sm font-medium mb-2">Vogn nr. / Plade</label>
                   {/* Show registered plates as buttons */}
-                  {drivers.length > 0 && (
+                  {drivers.length === 0 ? (
+                    <div className="text-center py-4 text-muted-foreground text-sm">Henter køretøjer...</div>
+                  ) : (
                     <div className="grid grid-cols-2 gap-2 mb-3">
                       {drivers.map(d => d.plate).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).map(plate => (
                         <button key={plate} onClick={() => setSetupPlate(plate)}
