@@ -11,7 +11,7 @@ import {
   History, Building2, ChevronLeft, ChevronRight
 } from "lucide-react";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "";
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 // Get current time in HH:MM format
