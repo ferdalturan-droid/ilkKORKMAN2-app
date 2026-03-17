@@ -41,8 +41,8 @@ api_router = APIRouter(prefix="/api")
 security = HTTPBasic()
 
 def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
-    correct_username = secrets.compare_digest(credentials.username, "admin")
-    correct_password = secrets.compare_digest(credentials.password, "ilkaps")
+    correct_username = secrets.compare_digest(credentials.username, os.environ.get("BASIC_AUTH_USERNAME", "admin"))
+    correct_password = secrets.compare_digest(credentials.password, os.environ.get("BASIC_AUTH_PASSWORD", "ilkaps"))
     if not (correct_username and correct_password):
         raise HTTPException(
             status_code=401,
@@ -616,56 +616,47 @@ async def get_admin_stats():
     drivers = await db.drivers.find({}, {"_id": 0}).to_list(100)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     
+    # Batch queries - fetch all data at once
+    all_tours = await db.tours.find({"is_pause": False}, {"_id": 0}).to_list(5000)
+    all_reports = await db.reports.find({}, {"_id": 0}).to_list(1000)
+    
+    # Group by driver_id
+    tours_by_driver = {}
+    for t in all_tours:
+        did = t.get("driver_id", "")
+        if did not in tours_by_driver:
+            tours_by_driver[did] = []
+        tours_by_driver[did].append(t)
+    
+    reports_by_driver = {}
+    for r in all_reports:
+        did = r.get("driver_id", "")
+        if did not in reports_by_driver:
+            reports_by_driver[did] = []
+        reports_by_driver[did].append(r)
+    
     stats = []
     for driver in drivers:
         driver_id = driver["id"]
-        
-        # Get all tours for this driver
-        all_tours = await db.tours.find(
-            {"driver_id": driver_id, "is_pause": False}, 
-            {"_id": 0}
-        ).to_list(500)
-        
-        # Get today's tours
-        today_tours = await db.tours.find(
-            {"driver_id": driver_id, "date": today, "is_pause": False},
-            {"_id": 0}
-        ).to_list(100)
-        
-        # Get reports
-        reports = await db.reports.find(
-            {"driver_id": driver_id},
-            {"_id": 0}
-        ).sort("report_date", -1).to_list(30)
-        
-        # Calculate stats
-        total_tours = len(all_tours)
-        completed_tours = len([t for t in all_tours if t.get("completed")])
-        total_weight = sum(t.get("weight", 0) or 0 for t in all_tours)
-        today_total = len(today_tours)
-        today_completed = len([t for t in today_tours if t.get("completed")])
-        
-        # Last report times
-        last_start = reports[0]["start_time"] if reports else ""
-        last_end = reports[0]["end_time"] if reports else ""
+        driver_tours = tours_by_driver.get(driver_id, [])
+        today_tours = [t for t in driver_tours if t.get("date") == today]
+        driver_reports = sorted(reports_by_driver.get(driver_id, []), key=lambda r: r.get("report_date", ""), reverse=True)
         
         stats.append(DriverStats(
             driver_id=driver_id,
             driver_name=driver["name"],
             plate=driver["plate"],
-            total_tours=total_tours,
-            completed_tours=completed_tours,
-            total_weight=total_weight,
-            today_tours=today_total,
-            today_completed=today_completed,
-            last_start_time=last_start,
-            last_end_time=last_end,
+            total_tours=len(driver_tours),
+            completed_tours=len([t for t in driver_tours if t.get("completed")]),
+            total_weight=sum(t.get("weight", 0) or 0 for t in driver_tours),
+            today_tours=len(today_tours),
+            today_completed=len([t for t in today_tours if t.get("completed")]),
+            last_start_time=driver_reports[0]["start_time"] if driver_reports else "",
+            last_end_time=driver_reports[0]["end_time"] if driver_reports else "",
             reports=[{
-                "date": r["report_date"],
-                "start": r["start_time"],
-                "end": r["end_time"],
-                "plads": r["plads"]
-            } for r in reports[:10]]
+                "date": r["report_date"], "start": r["start_time"],
+                "end": r["end_time"], "plads": r["plads"]
+            } for r in driver_reports[:10]]
         ))
     
     return stats
@@ -677,7 +668,7 @@ async def admin_login(credentials: dict):
     username = credentials.get("username", "")
     password = credentials.get("password", "")
     
-    if username == "admin" and password == "1234":
+    if username == os.environ.get("ADMIN_USERNAME", "admin") and password == os.environ.get("ADMIN_PASSWORD", "1234"):
         return {"success": True, "message": "Login successful"}
     else:
         raise HTTPException(status_code=401, detail="Invalid credentials")
